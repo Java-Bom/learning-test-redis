@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>
  * redis-socket:///path/to/socket Unix Domain Sockets connection to Redis
  */
-public class BasicUsageTest {
+public class RedisUriTest {
     private RedisClient client;
     private StatefulRedisConnection<String, String> connection;
 
