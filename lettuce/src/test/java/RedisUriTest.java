@@ -30,6 +30,7 @@ public class RedisUriTest {
     @AfterEach
     void tearDown() {
         if (Objects.nonNull(connection)) {
+            connection.sync().flushall();
             connection.close();
             connection = null;
         }
