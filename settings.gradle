@@ -1,3 +1,4 @@
 rootProject.name = 'learning-test-redis'
 include 'lettuce'
+include 'spring-data-redis'
 
