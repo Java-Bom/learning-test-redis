@@ -3,6 +3,7 @@ import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisFuture;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.async.RedisAsyncCommands;
+import io.lettuce.core.api.reactive.RedisReactiveCommands;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -21,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 public class RedisAsyncTest {
     private static final RedisClient CLIENT = RedisClient.create("redis://localhost");
     private static final StatefulRedisConnection<String, String> CONNECTION = CLIENT.connect();
+    private final RedisReactiveCommands<String, String> reactiveCommands = CONNECTION.reactive();
     private final RedisAsyncCommands<String, String> commands = CONNECTION.async();
 
     private final String key = "key";
