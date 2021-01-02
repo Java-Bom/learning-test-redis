@@ -12,7 +12,7 @@ import java.util.concurrent.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class RedisReactiveApiTest {
+public class RedisAsynchronousApiTest {
 
     private RedisClient client;
     private StatefulRedisConnection<String, String> connection;
@@ -181,7 +181,7 @@ public class RedisReactiveApiTest {
     @Disabled
     @DisplayName("either 류 메서드는 먼저 행동이 일어나는쪽의 결과를 가져다 사용한다.")
     @Test
-    void name() {
+    void eitherTest() {
         RedisClient upstreamClient = RedisClient.create("redis://localhost");
         StatefulRedisConnection<String, String> upstreamConnection = upstreamClient.connect();
         RedisClient replicaClient = RedisClient.create("redis://localhost");
@@ -200,5 +200,68 @@ public class RedisReactiveApiTest {
         replicaConnection.sync().flushall();
         replicaConnection.close();
         replicaClient.shutdown();
+    }
+
+    @DisplayName("handle 은 무조건 실행된다.")
+    @Test
+    void handleTest1() throws InterruptedException {
+        RedisAsyncCommands<String, String> commands = connection.async();
+
+        CountDownLatch countDownLatch = new CountDownLatch(2);
+        String key = "hello";
+        RedisFuture<String> future = commands.get(key);
+        Map<String, String> kv = new HashMap<>();
+        future.handle((value, e) -> {
+            if (e != null) {
+                return "default";
+            }
+            if (value == null) {
+                countDownLatch.countDown();
+                return "redis";
+            }
+            return value;
+        })
+                .thenAccept(value -> {
+                    kv.put(key, value);
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+
+        assertThat(countDownLatch.getCount()).isEqualTo(0);
+        assertThat(kv.get(key)).isEqualTo("redis");
+    }
+
+    @DisplayName("exceptionally 에서 Exception이 발생한 경우 처리할 수 있다.")
+    @Test
+    void handleTest2() throws InterruptedException {
+        RedisAsyncCommands<String, String> commands = connection.async();
+        String key = "hello";
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        Set<Throwable> throwables = new HashSet<>();
+        Map<String, String> kv = new HashMap<>();
+        RuntimeException runtimeException = new RuntimeException("redis");
+
+        commands.get(key)
+                .handle((value, e) -> {
+                    throw runtimeException;
+                })
+                .exceptionally(e -> {
+                    Throwable cause = e.getCause();
+                    throwables.add(cause);
+                    return cause.getMessage();
+                })
+                .thenAccept(value -> {
+                    kv.put(key, value.toString());
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+
+        assertThat(countDownLatch.getCount()).isEqualTo(0);
+        assertThat(throwables).hasSize(1);
+        assertThat(throwables).contains(runtimeException);
+        assertThat(kv.get(key)).isEqualTo("redis");
     }
 }
