@@ -161,20 +161,15 @@ public class RedisAsynchronousApiTest {
         //given
         RedisAsyncCommands<String, String> commands = connection.async();
         Set<String> threadNames = new HashSet<>();
-        threadNames.add(Thread.currentThread().getName());
 
         //when
         CountDownLatch countDownLatch = new CountDownLatch(1);
         RedisFuture<String> future = commands.get("foo");
 
-        future.thenRun(() -> {
-            threadNames.add(Thread.currentThread().getName());
-            countDownLatch.countDown();
-        });
+        future.thenRun(countDownLatch::countDown);
 
         //then
         countDownLatch.await();
-        assertThat(threadNames).hasSize(2);
         System.out.println(threadNames);
     }
 
