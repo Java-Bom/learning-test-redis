@@ -1,125 +1,104 @@
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
-import org.reactivestreams.Subscriber;
-import org.reactivestreams.Subscription;
-import reactor.core.publisher.EmitterProcessor;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.FluxSink;
-import reactor.core.scheduler.Schedulers;
 
-import java.time.Duration;
-import java.util.HashSet;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
+import java.util.function.Function;
 
-import static java.time.temporal.ChronoUnit.MILLIS;
+import static java.util.stream.Collectors.toMap;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ReactiveTest {
+    private final List<String> testData = Arrays.asList("Ben", "Michael", "Mark");
+    private ReactiveChecker checker;
+
+    @BeforeEach
+    void setUp() {
+        checker = new ReactiveChecker(testData);
+    }
 
     @Test
     void name() {
         //given
-
-        Flux<String> flux = Flux.just("Ben", "Michael", "Mark");
-
-        //when
-        flux.subscribe(new Subscriber<String>() {
-            private Subscription subscription;
-
-            public void onSubscribe(Subscription s) {
-                this.subscription = s;
-                this.subscription.request(1);
-            }
-
-            public void onNext(String s) {
-                System.out.println("Hello " + s + "!");
-                subscription.request(1);
-            }
-
-            public void onError(Throwable t) {
-                System.out.println("Hello ");
-            }
-
-            public void onComplete() {
-                System.out.println("Completed");
-            }
-        });
-
-        //then
+        Flux.just(testData.toArray(new String[0]))
+                .doOnNext(s -> checker.check(s))
+                .doOnComplete(() -> assertThat(checker.allMatch()).isTrue())
+                .subscribe();
     }
 
 
-    @CsvSource({"2,2,0", "4,3,1"})
-    @ParameterizedTest
-    void name2(int take, int eventCount, int result) {
-        //given
-        Set<String> events = new HashSet<>();
-        Set<String> results = new HashSet<>();
-
-        //when
-        Flux.just("Ben", "Michael", "Mark") //
-                .doOnNext(events::add)
-                .doOnComplete(() -> results.add("Completed"))
-                .take(take)
+    @Test
+    void name2() {
+        Flux.just(testData.toArray(new String[0]))
+                .doOnNext(s -> checker.check(s))
+                .doOnComplete(() -> assertThat(checker.allMatch()).isFalse())
+                .take(2)
                 .subscribe();
 
-        //then
-        assertThat(events.size()).isEqualTo(eventCount);
-        assertThat(results.size()).isEqualTo(result);
+        assertThat(checker.checkResult(testData.get(0))).isTrue();
+        assertThat(checker.checkResult(testData.get(1))).isTrue();
+        assertThat(checker.checkResult(testData.get(2))).isFalse();
     }
 
     @Test
     void name3() {
-        //given
-        //when
-        String last = Flux.just("Ben", "Michael", "Mark")
-                .last()
-                .block();
-        System.out.println(last);
+        Flux.just(testData.toArray(new String[0]))
+                .doOnNext(s -> {
+                    if (s.equals(testData.get(0))) {
+                        throw new RuntimeException();
+                    }
+                })
+                .doOnError(s -> checker.check(testData.get(2)))
+                .take(2)
+                .subscribe();
 
-        //then
-
+        assertThat(checker.checkResult(testData.get(2))).isTrue();
     }
-
 
     @Test
     void name4() {
         //given
-
-        //when
-        List<String> list = Flux.just("Ben", "Michael", "Mark").collectList().block();
-        System.out.println(list);
-        //then
-
+        String last = Flux.just(testData.toArray(new String[0])).last().block();
+        assertThat(testData.get(2)).isEqualTo(last);
     }
 
     @Test
-    void name5() throws InterruptedException {
+    void name5() {
         //given
-//        EmitterProcessor<Long> data = EmitterProcessor.create(1);
-//        data.subscribe(t -> System.out.println(t));
-//        FluxSink<Long> sink = data.sink();
-//        sink.next(10L);
-//        sink.next(11L);
-//        sink.next(12L);
-//        data.subscribe(t -> System.out.println(t));
-//        sink.next(13L);
-//        sink.next(14L);
-//        sink.next(15L);
-//
-        EmitterProcessor<String> emitter = EmitterProcessor.create();
-        FluxSink<String> sink = emitter.sink();
-        emitter.publishOn(Schedulers.single())
-                .map(String::toUpperCase)
-//                .filter(s -> s.startsWith("HELLO"))
-                .delayElements(Duration.of(1000, MILLIS))
-                .subscribe(System.out::println);
+        List<String> testData = Flux.just(this.testData.toArray(new String[0])).collectList().block();
+        assertThat(this.testData).isEqualTo(testData);
+    }
 
-        sink.next("Hello World!");
-        sink.next("Goodbye World");
-        sink.next("Again");
-        Thread.sleep(3000);
+    private static class ReactiveChecker {
+        private final Map<String, Integer> testMap;
+
+        public ReactiveChecker(List<String> testData) {
+            this.testMap = testData.stream()
+                    .collect(toMap(Function.identity(), s -> 0));
+        }
+
+        public void check(String s) {
+            if (testMap.containsKey(s)) {
+                int value = testMap.get(s);
+                testMap.put(s, value + 1);
+                return;
+            }
+            testMap.put(s, 0);
+        }
+
+        public boolean allMatch() {
+            for (Integer value : testMap.values()) {
+                if (value != 1) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public boolean checkResult(String s) {
+            return testMap.get(s) == 1;
+        }
     }
 }

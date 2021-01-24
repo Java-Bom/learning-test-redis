@@ -14,7 +14,6 @@ public class TempSubscription implements Subscription {
     public void request(long n) {
         for (long i = 0; i < n; i++) {
             try {
-                TempInfo.fetch(town);
                 subscriber.onNext(TempInfo.fetch(town));
             } catch (Exception e) {
                 subscriber.onError(e);
