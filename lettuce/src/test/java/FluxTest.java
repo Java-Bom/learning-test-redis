@@ -1,11 +1,18 @@
+import io.lettuce.core.api.reactive.RedisReactiveCommands;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.reactivestreams.Subscription;
 import reactor.core.publisher.BaseSubscriber;
 import reactor.core.publisher.Flux;
+import reactor.util.retry.Retry;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -113,4 +120,88 @@ public class FluxTest {
                 );
     }
 
+    @Test
+    void onErrorReturnTest() throws InterruptedException {
+        Set<String> values = new HashSet<>();
+        CountDownLatch countDownLatch = new CountDownLatch(3);
+        Flux.just("Ben", "Michael", "Mark")
+                .doOnNext(value -> {
+                    if (value.equals("Mark")) {
+                        throw new IllegalStateException("Takes way too long");
+                    }
+                })
+                .onErrorReturn("Default value")
+                .subscribe(value -> {
+                    values.add(value);
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+
+        assertThat(values).doesNotContain("Mark");
+        assertThat(values).contains("Default value");
+    }
+
+
+    @DisplayName("실패시 재시도 한다.")
+    @Test
+    void retryTest() throws InterruptedException {
+        //given
+        Set<String> values = new HashSet<>();
+        CountDownLatch countDownLatch = new CountDownLatch(3);
+
+        Queue<Boolean> failAndSuccess = new LinkedList<>();
+        failAndSuccess.add(true);
+        failAndSuccess.add(false);
+
+        //when
+        Flux.just("Ben", "Michael", "Mark")
+                .doOnNext(value -> {
+                    if (value.equals("Mark") && failAndSuccess.poll()) {
+                        throw new IllegalStateException("Takes way too long");
+                    }
+                })
+                .retry()
+                .subscribe(value -> {
+                    values.add(value);
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+
+        //then
+        assertThat(values).contains("Mark");
+    }
+
+    @DisplayName("실패시 전략을 Retry로 정의해 줄 수 있다.")
+    @Test
+    void retryWhenTest() throws InterruptedException {
+        //given
+        List<String> values = new ArrayList<>();
+        CountDownLatch countDownLatch = new CountDownLatch(5);
+
+        Queue<Boolean> failAndSuccess = new LinkedList<>();
+        failAndSuccess.add(true);
+        failAndSuccess.add(false);
+
+        //when
+        Flux.just("first", "second", "third")
+                .doOnNext(value -> {
+                    if ("third".equals(value) && failAndSuccess.poll()) {
+                        throw new IllegalStateException("Takes way too long");
+                    }
+                })
+                .retryWhen(Retry.max(1))
+                .subscribe(value -> {
+                    System.out.println(value);
+                    values.add(value);
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+
+        //then
+        assertThat(values).hasSize(5);
+        assertThat(values).containsExactly("first", "second", "first", "second", "third");
+    }
 }

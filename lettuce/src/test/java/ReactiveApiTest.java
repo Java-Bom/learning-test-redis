@@ -5,9 +5,19 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
+import reactor.util.retry.Retry;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -117,7 +127,7 @@ public class ReactiveApiTest {
         CountDownLatch countDownLatch = new CountDownLatch(1);
         Set<Long> results = new HashSet<>();
         Flux.just("Ben", "Michael", "Mark")
-                .flatMap(commands::scard)
+                .flatMap(commands::scard) // scard : return set cardinality of set
                 .reduce(Long::sum)
                 .subscribe(result -> {
                             results.add(result);
@@ -160,7 +170,7 @@ public class ReactiveApiTest {
         assertThat(values).contains("hello", "redis");
     }
 
-    @DisplayName("defaultIfEmpty 는 빈 시퀀스의 경우 기본 값을 반환해준다. ")
+    @DisplayName("defaultIfEmpty 는 빈 시퀀스(Flux)의 경우 기본 값을 반환해준다. ")
     @Test
     void absentValueTest2() throws InterruptedException {
         RedisReactiveCommands<String, String> commands = connection.reactive();
@@ -168,16 +178,16 @@ public class ReactiveApiTest {
         Set<String> values = new HashSet<>();
         CountDownLatch countDownLatch = new CountDownLatch(1);
 
-        Flux.just("")
+        Flux.just("not exist key")
                 .flatMap(commands::get)
                 .defaultIfEmpty("default")
                 .doOnNext(value -> {
-                    System.out.println("doOnNext: "+value);
+                    System.out.println("doOnNext: " + value);
                     values.add(value);
                     countDownLatch.countDown();
                 })
                 .subscribe(value -> {
-                    System.out.println("subscribe: "+value);
+                    System.out.println("subscribe: " + value);
                 });
 
         countDownLatch.await();
@@ -187,4 +197,168 @@ public class ReactiveApiTest {
         assertThat(values).hasSize(1);
         assertThat(values).contains("default");
     }
+
+    @DisplayName("fallback flux 를 제공할 수 있는 switchIfEmpty")
+    @Test
+    void switchIfEmptyTest() throws InterruptedException {
+        //given
+        RedisReactiveCommands<String, String> commands = connection.reactive();
+        Set<String> values = new HashSet<>();
+        commands.set("hello", "world").block();
+
+        Flux<String> fallbackFlux = Flux.just("hello")
+                .flatMap(commands::get);
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        //when
+        Flux.just("not exist key")
+                .flatMap(commands::get)
+                .switchIfEmpty(fallbackFlux)
+                .subscribe((value) -> {
+                    values.add(value);
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+        //then
+        assertThat(values).hasSize(1);
+        assertThat(values).contains("world");
+    }
+
+    @DisplayName("hasElements 로 퍼블리셔가 전달한 시퀀스가 비어있는지 확인 가능")
+    @ParameterizedTest
+    @CsvSource(value = {"hello,world,hello,true", "hello,world,foooooo,false"})
+    void hasElementsTest(String key, String value, String input, Boolean expect) throws InterruptedException {
+        //given
+        RedisReactiveCommands<String, String> commands = connection.reactive();
+        commands.set(key, value).block();
+
+        Set<Boolean> values = new HashSet<>();
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        //when
+        Flux.just(input)
+                .flatMap(commands::get)
+                .hasElements()
+                .subscribe((exist) -> {
+                    values.add(exist);
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+
+        //then
+        assertThat(values).hasSize(1);
+        assertThat(values).contains(expect);
+    }
+
+    @DisplayName("hasElement 로 퍼블리셔가 전달한 시퀀스에 특정 값이 있는지 확인 가능")
+    @ParameterizedTest
+    @CsvSource(value = {"hello,world,hello,true", "hello,world,foooooo,false"})
+    void hasElementTest(String key, String value, String input, Boolean expect) throws InterruptedException {
+        //given
+        RedisReactiveCommands<String, String> commands = connection.reactive();
+        commands.set(key, value).block();
+
+        Set<Boolean> values = new HashSet<>();
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        //when
+        Flux.just(input)
+                .flatMap(commands::get)
+                .hasElement(value)
+                .subscribe((exist) -> {
+                    values.add(exist);
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+
+        //then
+        assertThat(values).hasSize(1);
+        assertThat(values).contains(expect);
+    }
+
+    @DisplayName("첫번째로 null 이 아닌 시퀀스를 즉시 반환한다.")
+    @Test
+    void nextTest() throws InterruptedException {
+        //given
+        RedisReactiveCommands<String, String> commands = connection.reactive();
+        Set<String> values = new HashSet<>();
+
+        commands.set("hello", "world").block();
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        //when
+        Flux.just("not exist key", "hello")
+                .flatMap(commands::get)
+                .next()
+                .subscribe((value) -> {
+                    values.add(value);
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+
+        //then
+        assertThat(values).hasSize(1);
+        assertThat(values).contains("world");
+    }
+
+    @DisplayName("마지막 null 이 아닌 시퀀스 값을 반환한다.")
+    @Test
+    void lastTest() throws InterruptedException {
+        //given
+        RedisReactiveCommands<String, String> commands = connection.reactive();
+        Set<String> values = new HashSet<>();
+
+        commands.set("first", "things").block();
+        commands.set("hello", "world").block();
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        //when
+        Flux.just("first", "hello", "not exist key")
+                .flatMap(commands::get)
+                .last()
+                .subscribe((value) -> {
+                    values.add(value);
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+
+        //then
+        assertThat(values).hasSize(1);
+        assertThat(values).contains("world");
+    }
+
+    @DisplayName("null 이 아닌 특정(지정) 시퀀스를 반환한다.")
+    @Test
+    void elementAtTest() throws InterruptedException {
+        //given
+        RedisReactiveCommands<String, String> commands = connection.reactive();
+        Set<String> values = new HashSet<>();
+
+        commands.set("first", "things").block();
+        commands.set("hello", "world").block();
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        //when
+        Flux.just("first", "not exist key", "not exist key", "hello")
+                .flatMap(commands::get)
+                .elementAt(1)
+                .subscribe((value) -> {
+                    System.out.println(value);
+                    values.add(value);
+                    countDownLatch.countDown();
+                });
+
+        countDownLatch.await();
+
+        //then
+        assertThat(values).hasSize(1);
+        assertThat(values).contains("world");
+    }
+
+
 }
