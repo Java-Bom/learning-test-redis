@@ -13,13 +13,14 @@ configure(javaProjects) {
     }
 
     dependencies {
+        testCompile('org.junit.jupiter:junit-jupiter-params:5.2.0')
         testImplementation 'org.junit.jupiter:junit-jupiter-api:5.3.1'
         testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.3.1'
         testCompile group: 'org.assertj', name: 'assertj-core', version: '3.6.1'
     }
 
     test {
-        useJUnitPlatform() {}
+        useJUnitPlatform()
     }
 
 }
