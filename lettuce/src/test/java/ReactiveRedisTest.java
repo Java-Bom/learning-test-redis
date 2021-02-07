@@ -23,7 +23,7 @@ class ReactiveRedisTest {
 
     @AfterEach
     void tearDown() {
-        syncCommands.flushall();
+//        syncCommands.flushall();
     }
 
     @Test
@@ -128,6 +128,7 @@ class ReactiveRedisTest {
     @DisplayName("트랜잭션 적용")
     void name5() throws InterruptedException {
         //given
+        syncCommands.flushall();
         CountDownLatch latch = new CountDownLatch(1);
         //when
         commands.multi().subscribe(s -> {
@@ -139,5 +140,29 @@ class ReactiveRedisTest {
         //then
         latch.await();
         assertThat(syncCommands.get("key")).isEqualTo("2");
+    }
+
+    @Test
+    @DisplayName("스레드 변경 타이밍 확인")
+    void name6() {
+        //given
+        final List<String> texts = Lists.newArrayList("Ben", "Michael", "Mark");
+        texts.forEach(value -> syncCommands.set(value, value));
+
+        //when
+        Flux.just("Ben", "Michael", "Mark")
+                .filter(s -> {
+                    System.out.println(Thread.currentThread().getName());
+                    return s.startsWith("M");
+
+                })
+                .flatMap(commands::get)
+                .flatMap(s -> {
+                    System.out.println(Thread.currentThread().getName());
+                    return Flux.just(s);
+                })
+                .subscribe(value -> System.out.println("Got value: " + value));
+        //then
+
     }
 }
