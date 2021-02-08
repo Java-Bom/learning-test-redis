@@ -7,16 +7,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
-import reactor.util.retry.Retry;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -360,5 +356,47 @@ public class ReactiveApiTest {
         assertThat(values).contains("world");
     }
 
+    @DisplayName("transaction 을 사용하는 방법")
+    @Test
+    void multiTest() throws InterruptedException {
+        //given
+        RedisReactiveCommands<String, String> commands = connection.reactive();
 
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+        List<Integer> orders = new LinkedList<>();
+
+        //when
+        commands.multi() // multi 를 시작하면 transaction block 이 시작된다. 명령어를 바로 실행하지 않고 queue 에 적재해둔다.
+                .doOnSuccess(s -> {
+                    System.out.println("doOnSuccess : " + s);
+                    commands.set("key", "1")
+                            .doOnNext(status -> {
+                                orders.add(2);
+                                System.out.println("set is " + status);
+                            })
+                            .subscribe();
+                    commands.incr("key")
+                            .doOnNext(incr -> {
+                                orders.add(3);
+                                System.out.println("incr : " + incr);
+                            })
+                            .subscribe();
+                })
+                .flatMap(s -> {
+                    System.out.println("flatmap : " + s);
+                    orders.add(1);
+                    return commands.exec(); // exec 를 할 때 queue 에 적재한 명령어를 일괄적으로 실행한다.
+                })
+                .doOnNext(transactionResults -> {
+                    orders.add(4);
+                    System.out.println(transactionResults.wasDiscarded());
+                })
+                .subscribe((value) -> {
+                    orders.add(5);
+                    countDownLatch.countDown();
+                });
+        //then
+        countDownLatch.await();
+        assertThat(orders).containsExactly(1, 2, 3, 4, 5);
+    }
 }
